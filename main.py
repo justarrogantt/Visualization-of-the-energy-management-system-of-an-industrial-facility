@@ -12,6 +12,16 @@ from tkinter.messagebox import showinfo, showerror
 from PIL import Image, ImageTk
 
 
+BOILER_COUNT = 6
+BOILER_RATED_POWER_GCAL = 2.7
+BOILER_MIN_LOAD_PERCENT = 45.0
+GTU_RATED_POWER_MW = 16
+GTU_MAINTENANCE_INTERVAL_HOURS = 1500
+GTU_OVERHAUL_INTERVAL_HOURS = 10000
+GTU_MAINTENANCE_DURATION_DAYS = 14
+GTU_OVERHAUL_DURATION_DAYS = 30
+GTU_SWITCHING_ENGINE_HOURS = 2.5
+
 # Глобальные переменные для моточасов из Excel
 initial_to_hours = []
 initial_kr_hours = []
@@ -78,8 +88,16 @@ def open_excel_files():
         # Расчет моточасов только при загрузке файлов
         last_col_index = gtu_data.columns[-1]
         m_hours = gtu_data.loc[3:, last_col_index].dropna().to_numpy(dtype=float)
-        m_to_hours = numpy.where(m_hours > 1500, m_hours % 1500, m_hours)
-        m_kr_hours = numpy.where(m_hours > 10000, m_hours % 10000, m_hours)
+        m_to_hours = numpy.where(
+            m_hours > GTU_MAINTENANCE_INTERVAL_HOURS,
+            m_hours % GTU_MAINTENANCE_INTERVAL_HOURS,
+            m_hours,
+        )
+        m_kr_hours = numpy.where(
+            m_hours > GTU_OVERHAUL_INTERVAL_HOURS,
+            m_hours % GTU_OVERHAUL_INTERVAL_HOURS,
+            m_hours,
+        )
         m_hours = numpy.round(m_hours, 3)
 
         global initial_to_hours, initial_kr_hours, gtes
@@ -211,7 +229,7 @@ class UtilizationBoiler:
     
     def __init__(self, num_boiler):
         self.num = num_boiler
-        self.pwr = 2.7
+        self.pwr = BOILER_RATED_POWER_GCAL
         self.kpd = 0.935
         self.load = 0
         self.status = False
@@ -307,19 +325,19 @@ def heat_load_distribution(ht_fr_dist):
     quant_boiler - количество работающих котлов
     ht_fr_dist - тепло, подлежащее распределению (из выхода ф-ии heat_from_temp)"""
 
-    quant_boiler = 6
+    quant_boiler = BOILER_COUNT
     load = float(format(
-                        (((ht_fr_dist / quant_boiler) / 2.7) * 100), '.3f'
+                        (((ht_fr_dist / quant_boiler) / BOILER_RATED_POWER_GCAL) * 100), '.3f'
                         )
                 )
 
-    if load < 45.0: 
-        while load < 45.0:
+    if load < BOILER_MIN_LOAD_PERCENT:
+        while load < BOILER_MIN_LOAD_PERCENT:
             quant_boiler = quant_boiler - 1
             
             if quant_boiler != 1:
                 load = float(format(
-                                    (((ht_fr_dist / quant_boiler) / 2.7) * 100), '.3f'
+                                    (((ht_fr_dist / quant_boiler) / BOILER_RATED_POWER_GCAL) * 100), '.3f'
                                     )
                             )
             else:
@@ -358,7 +376,7 @@ def temp_of_month():
 
 def boilers_initialization():
     # Инициализация котлов
-    boilers = [UtilizationBoiler(i) for i in range(6)]
+    boilers = [UtilizationBoiler(i) for i in range(BOILER_COUNT)]
     
 
     temp = temp_of_month()
@@ -373,7 +391,7 @@ def boilers_initialization():
     print(f'Должно быть запущено котлов: {num_boilers_must_on}')
 
     # Вкл нужного количества котлов
-    n_boil_on = 6 - num_boilers_must_on
+    n_boil_on = BOILER_COUNT - num_boilers_must_on
 
     for boiler in boilers:
         if boiler.num > n_boil_on - 1:
@@ -399,33 +417,33 @@ def boilers_initialization():
 class GTU:
     def __init__(self, n):
         self.n = n # номер ГТУ
-        self.power = 16 # номинальная мощность
+        self.power = GTU_RATED_POWER_MW # номинальная мощность
         self.load = 1 # уровень загрузки (о.е.)
-        self.to = 1500 # моточасы до ТО
-        self.kr = 10000 # моточасы до КР
+        self.to = GTU_MAINTENANCE_INTERVAL_HOURS # моточасы до ТО
+        self.kr = GTU_OVERHAUL_INTERVAL_HOURS # моточасы до КР
         self.state = 0 # состояние 0-выкл/1-вкл/2-ТО или КР
         self.service_time = 0 # время сервисного обслуживания: 14 дней для ТО и 30 дней для КР
     
     def stop_to(self):
         self.state = 2
-        self.service_time = 14
-        self.to = 1500
+        self.service_time = GTU_MAINTENANCE_DURATION_DAYS
+        self.to = GTU_MAINTENANCE_INTERVAL_HOURS
         
     def stop_kr(self):
         self.state = 2
-        self.service_time = 30
-        self.to = 1500
-        self.kr = 10000
+        self.service_time = GTU_OVERHAUL_DURATION_DAYS
+        self.to = GTU_MAINTENANCE_INTERVAL_HOURS
+        self.kr = GTU_OVERHAUL_INTERVAL_HOURS
         
     def stop_n(self):
         self.state = 0
-        self.to = self.to - 2.5
-        self.kr = self.kr - 2.5
+        self.to = self.to - GTU_SWITCHING_ENGINE_HOURS
+        self.kr = self.kr - GTU_SWITCHING_ENGINE_HOURS
         
     def start_n(self):
         self.state = 1
-        self.to = self.to - 2.5
-        self.kr = self.kr - 2.5
+        self.to = self.to - GTU_SWITCHING_ENGINE_HOURS
+        self.kr = self.kr - GTU_SWITCHING_ENGINE_HOURS
     
     def __str__(self):
         return f'''
@@ -565,18 +583,18 @@ def gtu_initialization():
         p_sum = 89.7
     p_sum += get_power_loss(10, current_season)
 
-    n_gtu = math.ceil(p_sum / 16) # определение числа необходимых ГТУ
-    actual_loading = round(p_sum / n_gtu / 16, 2) # определение фактической загрузки ГТУ
+    n_gtu = math.ceil(p_sum / GTU_RATED_POWER_MW) # определение числа необходимых ГТУ
+    actual_loading = round(p_sum / n_gtu / GTU_RATED_POWER_MW, 2) # определение фактической загрузки ГТУ
     hp = hourly_production(actual_loading) # определение отношения мч/ч
     engine_hpd = hp * 24 # наработка за сутки при данной нагрузке
 
     # отключение ГТУ по состоянию
     for gtu in gtes:
         if gtu.state == 1:
-            if gtu.kr-engine_hpd-2.5 <= 0:
+            if gtu.kr - engine_hpd - GTU_SWITCHING_ENGINE_HOURS <= 0:
                 gtu.stop_kr()
                 # плюс к затратам за КР
-            elif gtu.to-engine_hpd-2.5 <= 0:
+            elif gtu.to - engine_hpd - GTU_SWITCHING_ENGINE_HOURS <= 0:
                 gtu.stop_to()
                 # плюс к затратам за ТО
             else:
@@ -773,7 +791,7 @@ def GTU_info(num, wt, prcnt, hTO, hKR, state):
 # Котлы
 marginB = w * 0.02  # Отступы
 sizeB = w * 0.09  # Размер
-num_blr = 6 # Кол-во котлов
+num_blr = BOILER_COUNT # Кол-во котлов
 widthB = num_blr * sizeB + (num_blr - 1) * marginB #Расчитываем ширину
 
 xB = xG      # Начальная координата X
