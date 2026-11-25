@@ -1,7 +1,7 @@
 from PIL import Image
-import ctypes #Подключаем типы из С/С++
+import ctypes
 from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta #изменение месяца pip install python-dateutil
+from dateutil.relativedelta import relativedelta
 import math
 import numpy
 import pandas as pd
@@ -26,9 +26,8 @@ GTU_SWITCHING_ENGINE_HOURS = 2.5
 initial_to_hours = []
 initial_kr_hours = []
 
-# Читаем данные
 current_date = datetime.now().date()
-# Предыдущий день для расчета моточасов
+# Дата предыдущего шага для расчёта моточасов.
 previous_date_for_gtu = current_date
 
 is_fullscreen = False
@@ -71,9 +70,9 @@ def open_excel_files():
 
     try:
         global energy_usage_data, gtu_data, gas_data, months, gas_prices
-        global m_hours, m_to_hours, m_kr_hours  # Объявляем глобальными
+        global m_hours, m_to_hours, m_kr_hours
 
-        energy_path = filepaths[0] #Добавлена загрузка трех файлов
+        energy_path = filepaths[0]
         gtu_path = filepaths[1]
         gas_path = filepaths[2]
 
@@ -145,7 +144,6 @@ def price_calc():
     elif current_year in (2025, 2026):
         price = gas_prices[-1] / 1000
 
-    # Вывод в терминал
     if price != 0:
         return(f'Стоимость газа на {current_day}.{current_month}.{current_year} = {price:.3f} руб/тыс.м³')
     else:
@@ -277,13 +275,7 @@ class UtilizationBoiler:
 
 last_5_temps = [None, None, None, None, None]   
 def heat_from_temp(temp):
-    """
-    Функция потребности тепла в зависимости от отрицательной температуры воздуха 
-    temp - температура воздуха
-
-    Функция должна срабатывать, когда среднесуточная температура 
-    на улице держится ниже +8 °C в течение 5 дней подряд
-    """
+    """Вычисляет потребность в тепле после пяти обновлений с температурой ниже +8 °C."""
     heat_need = 0
     global last_5_temps
 
@@ -403,7 +395,7 @@ class GTU:
         self.to = GTU_MAINTENANCE_INTERVAL_HOURS # моточасы до ТО
         self.kr = GTU_OVERHAUL_INTERVAL_HOURS # моточасы до КР
         self.state = 0 # состояние 0-выкл/1-вкл/2-ТО или КР
-        self.service_time = 0 # время сервисного обслуживания: 14 дней для ТО и 30 дней для КР
+        self.service_time = 0  # Оставшееся время обслуживания, в днях.
     
     def stop_to(self):
         self.state = 2
@@ -530,10 +522,8 @@ def gtu_initialization():
         if gtu.state == 1:
             if gtu.kr - engine_hpd - GTU_SWITCHING_ENGINE_HOURS <= 0:
                 gtu.stop_kr()
-                # плюс к затратам за КР
             elif gtu.to - engine_hpd - GTU_SWITCHING_ENGINE_HOURS <= 0:
                 gtu.stop_to()
-                # плюс к затратам за ТО
             else:
                 continue
 
@@ -735,7 +725,7 @@ date_label = Label(date_control_frame,
                 font=('Arial', 14, 'bold'))
 date_label.pack(side=LEFT, padx=10)
 
-# Кнопка загрузки (оставляем в правом нижнем углу)
+# Кнопка загрузки в правом нижнем углу.
 download_button = Button(root, 
                         text='Загрузить данные', 
                         bg='white', 
@@ -743,7 +733,7 @@ download_button = Button(root,
                         font=BUTTON_FONT)
 download_button.place(relx=0.98, rely=0.95, anchor=SE)
 
-# Параметры прямоугольника (добавьте в начало с другими параметрами)
+# Границы панели статуса.
 rect_y1 = yB
 rect_y1 += (h * 0.037)
 rect_x1 = xG + (sizeG + marginG)*6
@@ -778,17 +768,10 @@ status_text = canvas.create_text(
     anchor="nw"  # Привязка к северо-западному углу (левому верхнему)
 )
 
-# Функция для обновления текста (оставляем без изменений)
 def set_status_message(message):
     """Устанавливает текст сообщения в прямоугольнике"""
     canvas.itemconfig(status_text, text=message)
     canvas.update_idletasks()
-
-# Примеры использования:
-
-# set_status_message("ВНИМАНИЕ!\n\nОбнаружена ошибка\nКод: 45")
-# set_status_message("РАБОТА ЗАВЕРШЕНА\n\nВсе процессы\nостановлены")
-
 
 
 root.mainloop()
