@@ -442,102 +442,69 @@ def hourly_production(load):
     
     return y
 
-def get_power_loss(temp, season):
-    base_node_voltage = 11 # напряжение базисного узла, кВ
-    rated_voltage = 10 # номинальное напряжение сети, кВ
-    
-    node_type = ['base'] # тип узла
-    number_of_circuits = [] # количество цепей, шт.
-    
-    for i in range(32):
-        node_type.append('load')
-        number_of_circuits.append(2)
-        
-    r0 = 0.245/(1+0.00403*(20-temp)) # скорректированное на текущую температуру погонное сопротивление АС-120/19
-    x0 = 0.38
-    
-    line_lengths = [0.5, 3, 3.5, 4, 100, 1, 2, 3, 3.3, 4, 4.5, 5, 5.2, 5.7, 6, 6.5, 7, 7.5, 7.8, 8, 8.5, 9, 9.3,
-                   9.7, 17, 18, 20, 22, 23, 24, 25, 0.3] # длины линий
-    
-    linear_active_resistance = [ll*r0 for ll in line_lengths] # активное сопротивление ветвей, Ом
-    linear_reactive_resistance = [ll*x0 for ll in line_lengths] # реактивное сопротивление ветвей, Ом
-    
-    starting_point = [0 for i in range(32)] # номер узла, где ветвь начинается
-    end_point = [i for i in range(1, 33)] # номер узла, где ветвь заканчивается
-    
-    # исходные данные узлов: нагрезка <0; источник >0
-    power = [30, 9, 2, 3, 10, 0.7, 0.8, 0.5, 0.9, 1, 0.9, 0.5, 1, 1.3, 1, 0.8, 0.6, 0.8, 1, 1, 0.7, 1, 0.8, 1,
-        1.1, 1, 2.2, 1.4, 1.2, 1.3, 1.4, 22] # нагрузки узлов
-    
-    sn_summer = [90, 80, 100, 100, 100]
-    for i in range(26):
-        sn_summer.append(50)
-    sn_summer.append(70)
-    
-    sn_winter = [95, 90]
-    for i in range(29):
-        sn_winter.append(100)
-    sn_winter.append(55)
-    
+def seasonal_node_power(season):
+    # Активные нагрузки узлов, МВт.
+    power = [
+        30, 9, 2, 3, 10, 0.7, 0.8, 0.5, 0.9, 1, 0.9, 0.5, 1, 1.3, 1, 0.8,
+        0.6, 0.8, 1, 1, 0.7, 1, 0.8, 1, 1.1, 1, 2.2, 1.4, 1.2, 1.3, 1.4, 22,
+    ]
     if season == "summer":
-        sn = sn_summer
+        load_percentages = [90, 80, 100, 100, 100] + [50] * 26 + [70]
     else:
-        sn = sn_winter
-    
-    s = [] # полная мощность узлов, МВА
-    for i, pow in enumerate(power):
-        p = pow * sn[i] / 100
-        q = p * math.tan(math.acos(0.97))
-        s.append(-complex(p, q))
-    
-    number_of_nodes = len(s)+1 # количество узлов + 1 базисный
-    number_of_branches = len(starting_point) # количество ветвей
-    base_node_number = node_type.index('base') # номер базисного узла
-    
-    u=[base_node_voltage+0*1j for i in range(number_of_nodes-1)] # начальные приближения напряжений
-    
-    # составление первой матрицы инциденций
-    M_sum = [[0 for j in range(number_of_branches)] for i in range(number_of_nodes)]
-    for i in range(number_of_branches):
-        M_sum[starting_point[i]][i] = 1
-        M_sum[end_point[i]][i] = -1
-        
-    # составление матрицы М, не содержащей базисного угла (удалена 0 строка)
-    M = M_sum
-    M = numpy.delete(M, base_node_number, axis=0)
-    
-    # формирование матрицы сопротивлений ветвей (диагональная)
-    z_branches = [[0 for j in range(number_of_branches)] for i in range(number_of_branches)]
-    for i in range(number_of_branches):
-        z_branches[i][i]=linear_active_resistance[i]+linear_reactive_resistance[i]*1j
-        
-    # формирование матрицы узловых проводимостей
-    y_nodes = M.dot(numpy.linalg.inv(z_branches)).dot(M.transpose())
-    
-    # матрица сопротивлений узлов
-    z_nodes = numpy.linalg.inv(y_nodes)
-    
-    # формирование матрицы узловых токов
-    node_current = []
-    for i in range(number_of_nodes-1):
-        node_current.append(s[i].conjugate()/rated_voltage.conjugate())
-        
-    # расчет напряжений в узлах
-    result_u = u+z_nodes.dot(node_current)
-    result_u = numpy.insert(result_u, base_node_number, base_node_voltage)
-    result_abs_u = abs(result_u)
-    
-    # расчет токов в линиях
-    result_i = numpy.linalg.inv(z_branches).dot((numpy.transpose(M_sum)).dot(result_u))/3**0.5
-    abs_result_i = abs(result_i)
-    
-    # расчет потерь в линиях
-    dp = []
-    for i in range(len(linear_active_resistance)):
-        I = abs_result_i[i]
-        dp.append((I)**2*3*linear_active_resistance[i])
-    
-    return sum(dp)
+        load_percentages = [95, 90] + [100] * 29 + [55]
+
+    reactive_power_ratio = math.tan(math.acos(0.97))
+    node_power = []
+    for index, active_load in enumerate(power):
+        active_power = active_load * load_percentages[index] / 100
+        reactive_power = active_power * reactive_power_ratio
+        node_power.append(-complex(active_power, reactive_power))
+    return node_power
+
+
+def calculate_line_currents(node_power, active_resistance, reactive_resistance):
+    base_node_voltage = 11  # кВ
+    rated_voltage = 10  # кВ
+    base_node = 0
+    branch_count = len(active_resistance)
+    node_count = len(node_power) + 1
+
+    # Каждая ветвь идёт от базисного узла к одному узлу нагрузки.
+    incidence = [[0] * branch_count for _ in range(node_count)]
+    for index in range(branch_count):
+        incidence[base_node][index] = 1
+        incidence[index + 1][index] = -1
+    load_incidence = numpy.delete(incidence, base_node, axis=0)
+
+    branch_impedance = [[0] * branch_count for _ in range(branch_count)]
+    for index in range(branch_count):
+        branch_impedance[index][index] = active_resistance[index] + reactive_resistance[index] * 1j
+    branch_admittance = numpy.linalg.inv(branch_impedance)
+    node_admittance = load_incidence.dot(branch_admittance).dot(load_incidence.transpose())
+    node_impedance = numpy.linalg.inv(node_admittance)
+
+    initial_voltage = [base_node_voltage + 0j] * (node_count - 1)
+    node_current = [power.conjugate() / rated_voltage for power in node_power]
+    voltage = initial_voltage + node_impedance.dot(node_current)
+    voltage = numpy.insert(voltage, base_node, base_node_voltage)
+    return branch_admittance.dot(numpy.transpose(incidence).dot(voltage)) / 3**0.5
+
+
+def get_power_loss(temp, season):
+    # Длины линий и погонное сопротивление провода АС-120/19.
+    line_lengths = [
+        0.5, 3, 3.5, 4, 100, 1, 2, 3, 3.3, 4, 4.5, 5, 5.2, 5.7, 6, 6.5,
+        7, 7.5, 7.8, 8, 8.5, 9, 9.3, 9.7, 17, 18, 20, 22, 23, 24, 25, 0.3,
+    ]
+    unit_active_resistance = 0.245 / (1 + 0.00403 * (20 - temp))
+    unit_reactive_resistance = 0.38
+    active_resistance = [length * unit_active_resistance for length in line_lengths]
+    reactive_resistance = [length * unit_reactive_resistance for length in line_lengths]
+
+    node_power = seasonal_node_power(season)
+    line_currents = abs(calculate_line_currents(node_power, active_resistance, reactive_resistance))
+    return sum(current**2 * 3 * resistance for current, resistance in zip(line_currents, active_resistance))
+
 
 def month_delta(start_date, end_date):
     return (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
