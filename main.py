@@ -170,45 +170,32 @@ def update_label():
 
 LastButton = None
 
-def next_date():
+def move_date(new_date, button):
     global current_date, previous_date_for_gtu, LastButton
-    current_date += timedelta(days=1)
+    current_date = new_date
     update_label()
     set_status_message(f"СИСТЕМА В РАБОТЕ\n\n{price_calc()}")
     boilers_initialization()
     gtu_initialization()
     previous_date_for_gtu = current_date
-    LastButton = "next_date"
+    LastButton = button
+
+
+def next_date():
+    move_date(current_date + timedelta(days=1), "next_date")
+
 
 def previous_date():
-    global current_date, previous_date_for_gtu, LastButton
-    current_date -= timedelta(days=1)
-    update_label()
-    set_status_message(f"СИСТЕМА В РАБОТЕ\n\n{price_calc()}")
-    boilers_initialization()
-    gtu_initialization()
-    previous_date_for_gtu = current_date
-    LastButton = "previous_date"
+    move_date(current_date - timedelta(days=1), "previous_date")
+
 
 def next_month():
-    global current_date, previous_date_for_gtu, LastButton
-    current_date += relativedelta(months=1)
-    update_label()
-    set_status_message(f"СИСТЕМА В РАБОТЕ\n\n{price_calc()}")
-    boilers_initialization()
-    gtu_initialization()
-    previous_date_for_gtu = current_date
-    LastButton = "next_month"
+    move_date(current_date + relativedelta(months=1), "next_month")
+
 
 def previous_month():
-    global current_date, previous_date_for_gtu, LastButton
-    current_date -= relativedelta(months=1)
-    update_label()
-    set_status_message(f"СИСТЕМА В РАБОТЕ\n\n{price_calc()}")
-    boilers_initialization()
-    gtu_initialization()
-    previous_date_for_gtu = current_date
-    LastButton = "previous_month"
+    move_date(current_date - relativedelta(months=1), "previous_month")
+
 
 class UtilizationBoiler:
     """Котел утилизатор КВ-ГМ-3,15-95.
@@ -379,10 +366,9 @@ def boilers_initialization():
     heat_need = heat_from_temp(temp) # Потребность в тепле
     print(f'Потребность в тепле: {heat_need} Гкал/ч')
 
-    load_val = heat_load_distribution( heat_need )[0]
+    load_val, num_boilers_must_on = heat_load_distribution(heat_need)
     print(f'Загрузка одного котла: {load_val} %')
 
-    num_boilers_must_on = heat_load_distribution( heat_need )[1] # Число котлов, которые должны быть запущены
     print(f'Должно быть запущено котлов: {num_boilers_must_on}')
 
     # Вкл нужного количества котлов
@@ -594,45 +580,25 @@ def gtu_initialization():
             gtu.start_n()
             started += 1
 
-    # обновление состояний ГТУ по прошествии дня
-    if (LastButton == "next_date" or LastButton == "previous_date"):
+    elapsed = None
+    if LastButton in ("next_date", "previous_date"):
+        elapsed = time_delta_day
+    elif LastButton in ("next_month", "previous_month"):
+        elapsed = time_delta_month
+
+    if elapsed is not None:
         for gtu in gtes:
-            
-            # Для рабочей ГТУ
             if gtu.state == 1:
-                gtu.to -= engine_hpd * time_delta_day
-                gtu.kr -= engine_hpd * time_delta_day
+                gtu.to -= engine_hpd * elapsed
+                gtu.kr -= engine_hpd * elapsed
                 if gtu.to < 0:
                     gtu.to = 0
                 if gtu.kr < 0:
                     gtu.kr = 0
-
-            #Считаем дни ремонта для ГТУ на обслуживании
             elif gtu.state == 2:
-                gtu.service_time -= abs(time_delta_day)
+                gtu.service_time -= abs(elapsed)
                 if gtu.service_time == 0:
                     gtu.state = 0
-            else:
-                continue
-    elif (LastButton == "next_month" or LastButton == "previous_month"):
-        for gtu in gtes:
-            
-            # Для рабочей ГТУ
-            if gtu.state == 1:
-                gtu.to -= engine_hpd * time_delta_month
-                gtu.kr -= engine_hpd * time_delta_month
-                if gtu.to < 0:
-                    gtu.to = 0
-                if gtu.kr < 0:
-                    gtu.kr = 0
-
-            #Считаем дни ремонта для ГТУ на обслуживании
-            elif gtu.state == 2:
-                gtu.service_time -= abs(time_delta_month)
-                if gtu.service_time == 0:
-                    gtu.state = 0
-            else:
-                continue
 
     for gtu in gtes:
         print(gtu)
@@ -645,6 +611,43 @@ root.bind('<F11>', fullscreen)
 # Создаем холст (Canvas) для рисования
 canvas = Canvas(root, bg='black', highlightthickness=0)
 canvas.place(x=0, y=0, width=w, height=h)  # Растягиваем на весь экран
+
+def draw_equipment_row(count, x, y, size, margin, panel_shift, image):
+    image_positions = {}
+    panel_positions = {}
+    for index in range(count):
+        left = x + (size + margin) * index
+        canvas.create_image(left, y, image=image, anchor="nw")
+        image_positions[index + 1] = (left, y)
+
+    panel_top = y + panel_shift
+    for index in range(count):
+        offset = (size + margin) * index
+        left = x + offset
+        right = x + size + offset
+        canvas.create_rectangle(
+            left, panel_top, right, panel_top + size, outline="#f0f0f0", width=3
+        )
+        panel_positions[index + 1] = (left, panel_top)
+
+    return image_positions, panel_positions
+
+
+def draw_equipment_text(position, lines, tag):
+    x, y = position
+    x += w * 0.002
+    y += w * 0.001
+    for index, line in enumerate(lines):
+        canvas.create_text(
+            x,
+            y + index * int(w * 0.015),
+            text=line,
+            anchor="nw",
+            fill="white",
+            font=("Arial", int(h * 0.009)),
+            tags=tag,
+        )
+
 
 # Установки ГТУ
 marginG = w * 0.02  # Отступы
@@ -659,92 +662,24 @@ gtu_on = load_scaled_image("img/GTU_on.png", sizeG)
 gtu_off = load_scaled_image("img/GTU_off.png", sizeG)
 gtu_repair = load_scaled_image("img/GTU_repair.png", sizeG)
     
-# Создаем 9 изображений ГТУ
-GTU_dict = {
-    1: {'id': canvas.create_image(xG, yG, image=gtu_on, anchor="nw"), 
-       'coords': (xG, yG)},
-    2: {'id': canvas.create_image(xG + (sizeG + marginG)*1, yG, image=gtu_on, anchor="nw"),
-       'coords': (xG + (sizeG + marginG)*1, yG)},
-    3: {'id': canvas.create_image(xG + (sizeG + marginG)*2, yG, image=gtu_on, anchor="nw"),
-       'coords': (xG + (sizeG + marginG)*2, yG)},
-    4: {'id': canvas.create_image(xG + (sizeG + marginG)*3, yG, image=gtu_on, anchor="nw"),
-       'coords': (xG + (sizeG + marginG)*3, yG)},
-    5: {'id': canvas.create_image(xG + (sizeG + marginG)*4, yG, image=gtu_on, anchor="nw"),
-       'coords': (xG + (sizeG + marginG)*4, yG)},
-    6: {'id': canvas.create_image(xG + (sizeG + marginG)*5, yG, image=gtu_on, anchor="nw"),
-       'coords': (xG + (sizeG + marginG)*5, yG)},
-    7: {'id': canvas.create_image(xG + (sizeG + marginG)*6, yG, image=gtu_on, anchor="nw"),
-       'coords': (xG + (sizeG + marginG)*6, yG)},
-    8: {'id': canvas.create_image(xG + (sizeG + marginG)*7, yG, image=gtu_on, anchor="nw"),
-       'coords': (xG + (sizeG + marginG)*7, yG)},
-    9: {'id': canvas.create_image(xG + (sizeG + marginG)*8, yG, image=gtu_on, anchor="nw"),
-       'coords': (xG + (sizeG + marginG)*8, yG)}
-}
+gtu_image_positions, gtu_panel_positions = draw_equipment_row(
+    num_gtu, xG, yG, sizeG, marginG, w * 0.1, gtu_on
+)
 
-# Худ для ГТУ
-colorG = "#f0f0f0" #Настройка цвета
-widthG = 3 #Настройка толщины обводки
-shiftG = w * 0.1 #Настройка сдвига худа (по умолчанию находится на месте самого ГТУ)
 
-GTU_huds = {
-    1: {
-        'rect': canvas.create_rectangle(xG, yG + shiftG, xG + sizeG, yG + shiftG + sizeG, outline=colorG, width=widthG),
-        'coords': (xG, yG + shiftG)
-    },
-    2: {
-        'rect': canvas.create_rectangle(xG + (sizeG + marginG)*1, yG + shiftG, xG + sizeG + (sizeG + marginG)*1, yG + shiftG + sizeG, outline=colorG, width=widthG),
-        'coords': (xG + (sizeG + marginG)*1, yG + shiftG)
-    },
-    3: {
-        'rect': canvas.create_rectangle(xG + (sizeG + marginG)*2, yG + shiftG, xG + sizeG + (sizeG + marginG)*2, yG + shiftG + sizeG, outline=colorG, width=widthG),
-        'coords': (xG + (sizeG + marginG)*2, yG + shiftG)
-    },
-    4: {
-        'rect': canvas.create_rectangle(xG + (sizeG + marginG)*3, yG + shiftG, xG + sizeG + (sizeG + marginG)*3, yG + shiftG + sizeG, outline=colorG, width=widthG),
-        'coords': (xG + (sizeG + marginG)*3, yG + shiftG)
-    },
-    5: {
-        'rect': canvas.create_rectangle(xG + (sizeG + marginG)*4, yG + shiftG, xG + sizeG + (sizeG + marginG)*4, yG + shiftG + sizeG, outline=colorG, width=widthG),
-        'coords': (xG + (sizeG + marginG)*4, yG + shiftG)
-    },
-    6: {
-        'rect': canvas.create_rectangle(xG + (sizeG + marginG)*5, yG + shiftG, xG + sizeG + (sizeG + marginG)*5, yG + shiftG + sizeG, outline=colorG, width=widthG),
-        'coords': (xG + (sizeG + marginG)*5, yG + shiftG)
-    },
-    7: {
-        'rect': canvas.create_rectangle(xG + (sizeG + marginG)*6, yG + shiftG, xG + sizeG + (sizeG + marginG)*6, yG + shiftG + sizeG, outline=colorG, width=widthG),
-        'coords': (xG + (sizeG + marginG)*6, yG + shiftG)
-    },
-    8: {
-        'rect': canvas.create_rectangle(xG + (sizeG + marginG)*7, yG + shiftG, xG + sizeG + (sizeG + marginG)*7, yG + shiftG + sizeG, outline=colorG, width=widthG),
-        'coords': (xG + (sizeG + marginG)*7, yG + shiftG)
-    },
-    9: {
-        'rect': canvas.create_rectangle(xG + (sizeG + marginG)*8, yG + shiftG, xG + sizeG + (sizeG + marginG)*8, yG + shiftG + sizeG, outline=colorG, width=widthG),
-        'coords': (xG + (sizeG + marginG)*8, yG + shiftG)
-    }
-}
-
-# Функция для отображения текста в нужных ГТУ
 def GTU_info(num, wt, prcnt, hTO, hKR, state):
-    
-    canvas.delete(f"gtu_{num}")  # Общий тег для всех элементов
-   
-    text_x, text_y = GTU_huds[num]["coords"]
-    text_x += (w * 0.002)
-    text_y += (w * 0.001)
-    
+    tag = f"gtu_{num}"
+    canvas.delete(tag)
+    text_position = gtu_panel_positions[num]
+    img_x, img_y = gtu_image_positions[num]
 
-    img_x, img_y = GTU_dict[num]["coords"]
-    
- 
     if state == 1:
-        canvas.create_image(img_x, img_y, image=gtu_on, anchor="nw", tags=f"gtu_{num}")
+        canvas.create_image(img_x, img_y, image=gtu_on, anchor="nw", tags=tag)
     elif state == 0:
-        canvas.create_image(img_x, img_y, image=gtu_off, anchor="nw", tags=f"gtu_{num}")
+        canvas.create_image(img_x, img_y, image=gtu_off, anchor="nw", tags=tag)
     elif state == 2:
-        canvas.create_image(img_x, img_y, image=gtu_repair, anchor="nw", tags=f"gtu_{num}")
-    
+        canvas.create_image(img_x, img_y, image=gtu_repair, anchor="nw", tags=tag)
+
     lines = [
         f"Номер ГТУ: {num}",
         f"Номинальная W: {wt}Мвт",
@@ -752,23 +687,13 @@ def GTU_info(num, wt, prcnt, hTO, hKR, state):
         f"Моточасы до ТО: {hTO}ч",
         f"Моточасы до КР: {hKR}ч",
     ]
-    
-    for i, line in enumerate(lines):
-        canvas.create_text(
-            text_x,
-            text_y + i * int(w * 0.015),
-            text=line,
-            anchor="nw",
-            fill="white",
-            font=("Arial", int(h*0.009)),
-            tags=f"gtu_{num}" 
-        )
+    draw_equipment_text(text_position, lines, tag)
+
 
 # Котлы
 marginB = w * 0.02  # Отступы
 sizeB = w * 0.09  # Размер
-num_blr = BOILER_COUNT # Кол-во котлов
-widthB = num_blr * sizeB + (num_blr - 1) * marginB #Расчитываем ширину
+shiftB = w * 0.1
 
 xB = xG      # Начальная координата X
 yB = w * 0.26     # Начальная координата Y
@@ -776,100 +701,25 @@ yB = w * 0.26     # Начальная координата Y
 boiler_on = load_scaled_image("img/Boiler_on.png", sizeG)
 boiler_off = load_scaled_image("img/Boiler_off.png", sizeG)
 
-# Создаем 6 изображений Котлов
-BLR_dict = {
-    1: {
-        'id': canvas.create_image(xB, yB, image=boiler_on, anchor="nw"),
-        'coords': (xB, yB)
-    },
-    2: {
-        'id': canvas.create_image(xB + (sizeB + marginB)*1, yB, image=boiler_on, anchor="nw"),
-        'coords': (xB + (sizeB + marginB)*1, yB)
-    },
-    3: {
-        'id': canvas.create_image(xB + (sizeB + marginB)*2, yB, image=boiler_on, anchor="nw"),
-        'coords': (xB + (sizeB + marginB)*2, yB)
-    },
-    4: {
-        'id': canvas.create_image(xB + (sizeB + marginB)*3, yB, image=boiler_on, anchor="nw"),
-        'coords': (xB + (sizeB + marginB)*3, yB)
-    },
-    5: {
-        'id': canvas.create_image(xB + (sizeB + marginB)*4, yB, image=boiler_on, anchor="nw"),
-        'coords': (xB + (sizeB + marginB)*4, yB)
-    },
-    6: {
-        'id': canvas.create_image(xB + (sizeB + marginB)*5, yB, image=boiler_on, anchor="nw"),
-        'coords': (xB + (sizeB + marginB)*5, yB)
-    }
-}
+boiler_image_positions, boiler_panel_positions = draw_equipment_row(
+    BOILER_COUNT, xB, yB, sizeB, marginB, shiftB, boiler_on
+)
 
 
-# Худ для Котлов
-colorB = "#f0f0f0" #Настройка цвета
-widthB = 3 #Настройка толщины обводки
-shiftB = w * 0.1 #Настройка сдвига худа (по умолчанию находится на месте самого ГТУ)
-
-BLR_huds = {
-    1: {
-        'rect': canvas.create_rectangle(xB, yB + shiftB, xB + sizeB, yB + shiftB + sizeB, outline=colorB, width=widthB),
-        'coords': (xB, yB + shiftB)
-    },
-    2: {
-        'rect': canvas.create_rectangle(xB + (sizeB + marginB)*1, yB + shiftB, xB + sizeB + (sizeB + marginB)*1, yB + shiftB + sizeB, outline=colorB, width=widthB),
-        'coords': (xB + (sizeB + marginB)*1, yB + shiftB)
-    },
-    3: {
-        'rect': canvas.create_rectangle(xB + (sizeB + marginB)*2, yB + shiftB, xB + sizeB + (sizeB + marginB)*2, yB + shiftB + sizeB, outline=colorB, width=widthB),
-        'coords': (xB + (sizeB + marginB)*2, yB + shiftB)
-    },
-    4: {
-        'rect': canvas.create_rectangle(xB + (sizeB + marginB)*3, yB + shiftB, xB + sizeB + (sizeB + marginB)*3, yB + shiftB + sizeB, outline=colorB, width=widthB),
-        'coords': (xB + (sizeB + marginB)*3, yB + shiftB)
-    },
-    5: {
-        'rect': canvas.create_rectangle(xB + (sizeB + marginB)*4, yB + shiftB, xB + sizeB + (sizeB + marginB)*4, yB + shiftB + sizeB, outline=colorB, width=widthB),
-        'coords': (xB + (sizeB + marginB)*4, yB + shiftB)
-    },
-    6: {
-        'rect': canvas.create_rectangle(xB + (sizeB + marginB)*5, yB + shiftB, xB + sizeB + (sizeB + marginB)*5, yB + shiftB + sizeB, outline=colorB, width=widthB),
-        'coords': (xB + (sizeB + marginB)*5, yB + shiftB)
-    }
-}
-
-# Функция для отображения текста в нужных ГТУ
 def BLR_info(num, prcnt, pwr, state):
-
-    canvas.delete(f"blr_{num}")
-
-    img_x, img_y = BLR_dict[num]["coords"]
-    
-    # Координаты для текста
-    text_x, text_y = BLR_huds[num]["coords"]
-    text_x += (w * 0.002)
-    text_y += (w * 0.001)
-    
-    if state:  # True или "on"
-        canvas.create_image(img_x, img_y, image=boiler_on, anchor="nw", tags=f"blr_{num}")
-    else:  # False или "off"
-        canvas.create_image(img_x, img_y, image=boiler_off, anchor="nw", tags=f"blr_{num}")
+    tag = f"blr_{num}"
+    canvas.delete(tag)
+    img_x, img_y = boiler_image_positions[num]
+    text_position = boiler_panel_positions[num]
+    image = boiler_on if state else boiler_off
+    canvas.create_image(img_x, img_y, image=image, anchor="nw", tags=tag)
 
     lines = [
         f"Номер котла: {num}",
         f"Уровень загрузки: {prcnt}%",
-        f"Мощность: {pwr}Гкал"
+        f"Мощность: {pwr}Гкал",
     ]
-    
-    for i, line in enumerate(lines):
-        canvas.create_text(
-            text_x,
-            text_y + i * int(w * 0.015),
-            text=line,
-            anchor="nw",
-            fill="white",
-            font=("Arial", int(h*0.009)),
-            tags=f"blr_{num}"  # Тот же тег
-        )
+    draw_equipment_text(text_position, lines, tag)
 
 
 # Константы для кнопок управления датой
@@ -927,7 +777,7 @@ download_button = Button(root,
 download_button.place(relx=0.98, rely=0.95, anchor=SE)
 
 # Параметры прямоугольника (добавьте в начало с другими параметрами)
-rect_x1, rect_y1 = BLR_dict[6]["coords"]
+rect_y1 = yB
 rect_y1 += (h * 0.037)
 rect_x1 = xG + (sizeG + marginG)*6
 
