@@ -140,15 +140,10 @@ def price_calc():
         return
 
     # Проверяем год и рассчитываем цену только если есть данные
-    if current_year == 2024:
-        if current_month <= len(gas_prices):
-            price = gas_prices[current_month - 1]/1000
-    elif current_year == 2025:
-        price = gas_prices[-1]/1000
-    elif current_year == 2026:
-        price = gas_prices[-1]/1000
-    else:
-        price = 0  # Нет данных на этот год
+    if current_year == 2024 and current_month <= len(gas_prices):
+        price = gas_prices[current_month - 1] / 1000
+    elif current_year in (2025, 2026):
+        price = gas_prices[-1] / 1000
 
     # Вывод в терминал
     if price != 0:
@@ -566,21 +561,10 @@ def gtu_initialization():
     time_delta_day = (current_date - previous_date_for_gtu).days
     time_delta_month = month_delta(previous_date_for_gtu, current_date)
 
-    current_datetime = current_date # текущая дата
-    custom_datetime_1 = 6
-    custom_datetime_2 = 10
-    current_season = None
-    if 6<= current_datetime.month <10:
-        current_season = 'summer'
+    if 6 <= current_date.month < 10:
+        current_season, p_sum = 'summer', 77.6
     else:
-        current_season = 'winter'
-
-    # определение мощности потребления
-    p_sum = None
-    if current_season == 'summer':
-        p_sum = 77.6
-    else:
-        p_sum = 89.7
+        current_season, p_sum = 'winter', 89.7
     p_sum += get_power_loss(10, current_season)
 
     n_gtu = math.ceil(p_sum / GTU_RATED_POWER_MW) # определение числа необходимых ГТУ
@@ -600,23 +584,15 @@ def gtu_initialization():
             else:
                 continue
 
-    # отключение ГТУ по количеству n_gtu
-    gtes.sort(key=lambda x: x.kr)
-    n = 0
+    # Запускаем остановленные ГТУ в порядке оставшихся моточасов до КР.
+    gtes.sort(key=lambda gtu: gtu.kr)
+    started = 0
     for gtu in gtes:
-        if gtu.state == 0 and n < n_gtu:
-            if n < n_gtu:
-                n += 1
-            else:
-                gtu.stop_n()
-                
-    # запуск ГТУ по количеству n_gtu
-    n = 0
-    for gtu in gtes:
+        if started >= n_gtu:
+            break
         if gtu.state == 0:
-            if n < n_gtu:
-                gtu.start_n()
-                n += 1
+            gtu.start_n()
+            started += 1
 
     # обновление состояний ГТУ по прошествии дня
     if (LastButton == "next_date" or LastButton == "previous_date"):
